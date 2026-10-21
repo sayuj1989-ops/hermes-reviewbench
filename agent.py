@@ -14,7 +14,7 @@ MODEL = os.environ.get("RB_CONFIG_MODEL") or "z-ai/glm-5.3"
 BASE_URL = RB["RB_MODEL_BASE_URL"] or "https://integrate.api.nvidia.com/v1"
 API_KEY = os.environ.get("NVIDIA_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
 REPO = "/work/repo"
-BUDGET_S = 1500  # keeps one hermes run under the 1800s per-PR default
+BUDGET_S = 3000  # matches the 3600s per-PR ceiling requested at registration
 
 PROMPT = """You are a meticulous senior code reviewer. Review pull request \
 {pr_number} of {nwo}.
@@ -61,11 +61,15 @@ def run_hermes():
     env = dict(os.environ, HERMES_HOME=home, HOME=home,
                GIT_CONFIG_COUNT="1",
                GIT_CONFIG_KEY_0="safe.directory", GIT_CONFIG_VALUE_0=REPO)
-    cmd = ["hermes", "chat", "-q", PROMPT, "--oneshot", "-Q",
-           "--format", "text", "--ignore-rules", "-t", "terminal",
-           "--no-restore-cwd"]
-    out = subprocess.run(cmd, capture_output=True, text=True,
-                         timeout=BUDGET_S + 60, cwd=REPO, env=env)
+    # hermes-agent 0.19.x: -q on non-TTY stdio answers the query and exits
+    cmd = ["hermes", "chat", "-q", PROMPT, "-Q",
+           "--ignore-rules", "-t", "terminal", "--no-restore-cwd"]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True,
+                             timeout=BUDGET_S + 60, cwd=REPO, env=env)
+    except subprocess.TimeoutExpired:
+        sys.stderr.write("hermes run exceeded budget\n")
+        return None
     tail = (out.stdout or "") + "\n" + (out.stderr or "")
     if out.returncode != 0:
         sys.stderr.write("hermes rc=%d tail=%s\n" % (out.returncode, tail[-2000:]))
@@ -73,28 +77,37 @@ def run_hermes():
     return out.stdout
 
 
+def _arrays(text):
+    """Yield every balanced [...] span in text, last first."""
+    spans = []
+    depth = 0
+    start = -1
+    for i, ch in enumerate(text):
+        if ch == "[":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "]" and depth:
+            depth -= 1
+            if depth == 0:
+                spans.append(text[start:i + 1])
+    return list(reversed(spans))
+
+
 def extract_findings(text):
-    """Pull the last JSON array out of the agent's answer."""
-    candidates = re.findall(r"\[[\s\S]*?\](?=\s*(?:```|$))", text) or []
-    candidates.append(text)
-    for chunk in reversed(candidates):
-        chunk = chunk.strip().strip("`")
-        chunk = re.sub(r"^json\s*", "", chunk)
-        try:
-            parsed = json.loads(chunk)
-        except Exception:
-            continue
-        if isinstance(parsed, list):
-            return parsed
-    # brace scan for a single object wrapped loosely
-    m = re.search(r"\[[\s\S]*\]", text)
-    if m:
-        try:
-            parsed = json.loads(m.group(0))
+    """Parse the last JSON array in the agent's answer.
+
+    Messages may contain '[' themselves, so this balances brackets instead
+    of regexing; candidate spans are tried newest-first until one parses.
+    """
+    for chunk in _arrays(text):
+        for attempt in (chunk, re.sub(r"^json\s*", "", chunk.strip().strip("`"))):
+            try:
+                parsed = json.loads(attempt)
+            except Exception:
+                continue
             if isinstance(parsed, list):
                 return parsed
-        except Exception:
-            pass
     return None
 
 
