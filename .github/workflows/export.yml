@@ -16,8 +16,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - run: |
-          docker pull ghcr.io/${{ github.repository_owner }}/hermes-reviewbench@sha256:f1f041db951962fc544e793941a37a4f7f75d1cc9ea8deca3542634eed451cd7
-          docker tag ghcr.io/${{ github.repository_owner }}/hermes-reviewbench@sha256:f1f041db951962fc544e793941a37a4f7f75d1cc9ea8deca3542634eed451cd7 hermes-reviewbench:dev
+          docker pull ghcr.io/${{ github.repository_owner }}/hermes-reviewbench:${{ github.sha }}
+          docker tag ghcr.io/${{ github.repository_owner }}/hermes-reviewbench:${{ github.sha }} hermes-reviewbench:dev
           docker save hermes-reviewbench:dev | gzip > hermes-reviewbench.tar.gz
       - uses: actions/upload-artifact@v4
         with:
