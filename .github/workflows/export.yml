@@ -1,0 +1,25 @@
+# One-off helper: export the built reviewer image as a downloadable artifact
+# (used to validate the exact ghcr image locally without a packages-scoped token).
+name: Export image
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: read
+  packages: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: |
+          docker pull ghcr.io/${{ github.repository_owner }}/hermes-reviewbench@sha256:79168fd56a675c44a69cc3d62f497ee5c6655904062a89b7a4c9fb0fd246f265
+          docker tag ghcr.io/${{ github.repository_owner }}/hermes-reviewbench@sha256:79168fd56a675c44a69cc3d62f497ee5c6655904062a89b7a4c9fb0fd246f265 hermes-reviewbench:dev
+          docker save hermes-reviewbench:dev | gzip > hermes-reviewbench.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hermes-reviewbench-image
+          path: hermes-reviewbench.tar.gz
