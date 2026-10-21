@@ -1,0 +1,24 @@
+# One-off: flip the linked container package to public using the workflow token.
+name: Set package public
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: read
+  packages: write
+jobs:
+  vis:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Change package visibility
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          curl -sS -X PATCH \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/user/packages/container/hermes-reviewbench/visibility" \
+            -d '{"visibility":"public"}' | head -c 300
+          echo
+          curl -sS -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/user/packages/container/hermes-reviewbench" | head -c 300
